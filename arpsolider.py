@@ -7,10 +7,12 @@ import time
 from scapy.all import *
 import os
 import socket
-import pwd
+try:
+    import pwd
+except ImportError:
+    pass
 import shlex
 import colorama
-import fcntl
 import struct
 IP = CMD = 0
 MAC = TARGET = 1
@@ -24,6 +26,17 @@ def getMode(mode):
         return "%s[!]%s"%(colorama.Fore.RED,colorama.Fore.RESET)
     elif mode in ["success"]:
         return "%s[*]%s"%(colorama.Fore.GREEN,colorama.Fore.RESET)
+def selectInterface():
+    selections = {}
+    for i,s in zip(ifaces.data.keys(),xrange(len(ifaces.data.keys()))):
+        iface = ifaces.data[i]
+        wname = iface.data['netid']
+        selections[s] = iface
+        print("%s > %s : %s"%(s,wname,get_if_addr(iface)))
+    try:
+        return selections[input("Select interface > ")]
+    except:
+        return selectInterface()
 lt = time.time()
 lt_ = 0.05
 def getLoader(color=colorama.Fore.YELLOW):
@@ -38,9 +51,14 @@ def getLoader(color=colorama.Fore.YELLOW):
     )
 def printf(values, mode="ok",s="",end="\n"):
     print "%s%s%s%s"%(s,getMode(mode),values,end),
-
 def get_username():
-    return pwd.getpwuid( os.getuid() )[ 0 ]
+    try:
+        return pwd.getpwuid( os.getuid() )[ 0 ]
+    except:
+        if("USERNAME" in os.environ):
+            return os.environ["USERNAME"]
+        else:
+            return "group"
 class ArpHandler:
     ip_forward_dir = "/proc/sys/net/ipv4/ip_forward"
     def __init__(self,interface="eth0"):
@@ -99,24 +117,26 @@ class ArpSpooferConsole:
         self.Done = False
         self.Interface  = "eth0"
         self.Timeout = 5
-        try:
-            mhost = get_if_addr(self.Interface)
-            if(mhost):
-                self.m_host =mhost
-            else:
-                self.Interface = raw_input("Please Enter Interface :")
-                try:
-                    mhost = get_if_addr(self.Interface)
-                except:
-                    print("Next time enter correctly")
-                    sys.exit(0)
-        except:
-            self.Interface = raw_input("Please Enter Interface :")
-            try:
-                    mhost = get_if_addr(self.Interface)
-            except:
-                    print("Next time enter correctly")
-                    sys.exit(0)
+        self.Interface = selectInterface()
+        self.m_host = get_if_addr(self.Interface)
+        # try:
+        #     mhost = get_if_addr(self.Interface)
+        #     if(mhost):
+        #         self.m_host =mhost
+        #     else:
+        #         self.Interface = raw_input("Please Enter Interface :")
+        #         try:
+        #             mhost = get_if_addr(self.Interface)
+        #         except:
+        #             print("Next time enter correctly")
+        #             sys.exit(0)
+        # except:
+        #     self.Interface = raw_input("Please Enter Interface :")
+        #     try:
+        #             mhost = get_if_addr(self.Interface)
+        #     except:
+        #             print("Next time enter correctly")
+        #             sys.exit(0)
         self.arpHandler = ArpHandler(self.Interface)
         self.Targets = [
 
