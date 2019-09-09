@@ -12,14 +12,36 @@ except ImportError:
 import shlex
 import colorama
 import struct
+if os.name=="nt":
+    import subprocess
+    import ctypes
 IP = CMD = 0
 MAC = TARGET = 1
 try:
     import winreg
     class creg:
         registry_dir = "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"
+        service_name = "RemoteAccess"
         def __init__(self):
             self.key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters', 0, winreg.KEY_ALL_ACCESS)
+        def Service(self,state=True):
+            if(state):
+                args = ["sc","start",self.service_name]
+                result = subprocess.run(args)
+                return result.find("START_PENDING") > -1 or result.find("FAILED 1056") > -1
+                print(result)
+            else:
+                args = ["sc","stop",self.service_name]
+                result = subprocess.run(args)
+                print(result)
+                return result.find("STOP_PENDING") > -1 and result.find("FAILED 1062") > -1
+        def Check(self):
+            try:
+                self.key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters', 0, winreg.KEY_ALL_ACCESS)
+                winreg.QueryValueEx(self.key, "IPEnableRouter")[0]
+                return True
+            except:
+                return False                
         def GetValue(self):
             try:
                 return winreg.QueryValueEx(self.key, "IPEnableRouter")[0]
@@ -28,6 +50,7 @@ try:
         def SetValue(self,value=0):
             try:
                 winreg.SetValueEx(self.key,"IPEnableRouter",0,winreg.REG_DWORD,value)
+                self.Service(True if value == 1 else False)
                 if(self.GetValue() == value):
                     return True
                 return False
@@ -35,6 +58,15 @@ try:
                 return False
 except ImportError:
     pass
+if os.name =="nt":
+    def is_admin():
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            return False
+else:
+    def is_admin():
+        return True
 colorama.init()
 def getMode(mode):
     if mode == "ok":
@@ -92,33 +124,58 @@ class ArpHandler:
     ip_forward_dir = "/proc/sys/net/ipv4/ip_forward"
     def __init__(self,interface="eth0"):
         self.interface = interface
+        if(os.name == "nt"):
+            try:
+                self.creg = creg()
+            except WindowsError:
+                if(is_admin()):
+                    printf("IP Forwarding couldn't be handled.",mode="error")
+                else:
+                    printf("Program hasn't started as administrator. IP Forwarding couldn't be handled.",mode="error")
+                    ctypes.windll.shell32.ShellExecuteW(None, u"runas", unicode(sys.executable), unicode(__file__), None, 1)
+                    sys.exit()
+                    exit()
     def checkForwader(self):
         try:
             if(os.name == "posix"):
                 with open(self.ip_forward_dir,"r") as fp:
                     value = bool(int(fp.read(1)))
                     return True
+            elif(os.name == "nt"):
+                return self.creg.Check()
         except:
             return False
     def isForwarderOpen(self):
         try:
-            with open(self.ip_forward_dir,"r") as fp:
-                value = bool(int(fp.read(1)))
-                return value
+            if(os.name=="posix"):
+                with open(self.ip_forward_dir,"r") as fp:
+                    value = bool(int(fp.read(1)))
+                    return value
+            elif(os.name == "nt"):
+                v = self.creg.GetValue()
+                return v==1
         except:
             return False
     def setForwading(self,value=False):
         try:
-            if(value):
-                v=True
-                with open(self.ip_forward_dir,"w") as fp:
-                    fp.write("1" if v else "0")
-                return self.isForwarderOpen()
-            else:
-                v=False
-                with open(self.ip_forward_dir,"w") as fp:
-                    fp.write("1" if v else "0")
-                return not self.isForwarderOpen()
+            if(os.name == "posix"):
+                if(value):
+                    v=True
+                    with open(self.ip_forward_dir,"w") as fp:
+                        fp.write("1" if v else "0")
+                    return self.isForwarderOpen()
+                else:
+                    v=False
+                    with open(self.ip_forward_dir,"w") as fp:
+                        fp.write("1" if v else "0")
+                    return not self.isForwarderOpen()
+            elif(os.name == "nt"):
+                if(value):
+                    self.creg.SetValue(1)
+                    return self.isForwarderOpen()
+                else:
+                    self.creg.SetValue(0)
+                    return not self.isForwarderOpen()
         except:
             return False
     def restoreArpCaches(self,target, gateway, verbose=True):
