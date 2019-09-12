@@ -1,4 +1,4 @@
-# arpsolider
+# arpsoldier
 Arp Spoofing More than one devices
 # Example usage
 ```
