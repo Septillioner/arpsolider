@@ -17,6 +17,7 @@ if os.name=="nt":
     import ctypes
 IP = CMD = 0
 MAC = TARGET = 1
+
 try:
     import winreg
     class creg:
@@ -24,17 +25,12 @@ try:
         service_name = "RemoteAccess"
         def __init__(self):
             self.key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters', 0, winreg.KEY_ALL_ACCESS)
-        def Service(self,state=True):
-            if(state):
-                args = ["sc","start",self.service_name]
-                result = subprocess.run(args)
-                return result.find("START_PENDING") > -1 or result.find("FAILED 1056") > -1
-                print(result)
-            else:
-                args = ["sc","stop",self.service_name]
-                result = subprocess.run(args)
-                print(result)
-                return result.find("STOP_PENDING") > -1 and result.find("FAILED 1062") > -1
+        def Service(self,state=True,service_name="RemoteAccess"):
+            args = ["sc","start" if state else "stop",service_name]
+            pipe = subprocess.Popen(args,shell=True,stdout=subprocess.PIPE)
+            pipe.wait()
+            result = "".join(pipe.stdout.readlines())
+            return (result.find("START_PENDING") > -1 or result.find("FAILED 1056") > -1) if state else (result.find("STOP_PENDING") > -1 or result.find("FAILED 1062") > -1)
         def Check(self):
             try:
                 self.key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters', 0, winreg.KEY_ALL_ACCESS)
@@ -50,7 +46,7 @@ try:
         def SetValue(self,value=0):
             try:
                 winreg.SetValueEx(self.key,"IPEnableRouter",0,winreg.REG_DWORD,value)
-                self.Service(True if value == 1 else False)
+                self.Service(True if value == 1 else False,self.service_name)
                 if(self.GetValue() == value):
                     return True
                 return False
@@ -78,6 +74,7 @@ def getMode(mode):
     elif mode in ["success"]:
         return "%s[*]%s"%(colorama.Fore.GREEN,colorama.Fore.RESET)
 def searchAndGetInterface(iname):
+    ifaces = NetworkInterfaceDict()
     for i in ifaces.data.keys():
         iface = ifaces.data[i]
         wname = iface.data['netid']
@@ -245,6 +242,7 @@ class ArpSpooferConsole:
             "add":self.Add,
             "start":self.Start,
             "stop":self.Stop,
+            "monitor":self.Monitor,
             "remove":self.Remove
         }
         self.InptStr = "%s%s@%s%s:"%(colorama.Fore.RED,self.cwd,self.m_host,colorama.Fore.RESET)
@@ -477,6 +475,8 @@ class ArpSpooferConsole:
                 return
             print("%s assigned as %s"%(self.Timeout,value))
             self.Timeout = value
+    def Monitor(self):
+        pass
     def run(self):
         print("ArpSolider")
         print("Name : Ege Ismail")
@@ -504,7 +504,11 @@ class ArpSpooferConsole:
             cmd = parsed_cmd[0].lower() if len(parsed_cmd) > 0 else ""
             args = parsed_cmd[1:] if len(parsed_cmd) > 1 else []
             if(cmd in self.commands and callable(self.commands[cmd])):
-                self.commands[cmd](args)
+                try:
+                    self.commands[cmd](args)
+                except KeyboardInterrupt:
+                    print()
+                    printf("%s Interrupted."%(cmd),mode="error")
             else:
                 if(cmd is not ""):
                     print("%s Command Not Found"%(cmd))
