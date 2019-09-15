@@ -74,27 +74,34 @@ def getMode(mode):
     elif mode in ["success"]:
         return "%s[*]%s"%(colorama.Fore.GREEN,colorama.Fore.RESET)
 def searchAndGetInterface(iname):
-    ifaces = NetworkInterfaceDict()
-    for i in ifaces.data.keys():
-        iface = ifaces.data[i]
-        wname = iface.data['netid']
-        if(wname == iname):
-            return iface
-    return selectInterface()
-def selectInterface():
-    selections = {}
-    print("-1 > exit")
-    for i,s in zip(ifaces.data.keys(),xrange(len(ifaces.data.keys()))):
-        iface = ifaces.data[i]
-        wname = iface.data['netid']
-        selections[s] = iface
-        print("%s > %s : %s"%(s,wname,get_if_addr(iface)))
     try:
-        s_ = int(input("Select interface > "))
-        if s_ == -1: sys.exit()
-        return selections[s_]
-    except KeyboardInterrupt:
+        ifaces = NetworkInterfaceDict()
+        for i in ifaces.data.keys():
+            iface = ifaces.data[i]
+            wname = iface.data['netid']
+            if(wname == iname):
+                return iface
         return selectInterface()
+    except NameError:
+        return "eth0"
+def selectInterface():
+    try:
+        selections = {}
+        print("-1 > exit")
+        ifaces = NetworkInterfaceDict()
+        for i,s in zip(ifaces.data.keys(),xrange(len(ifaces.data.keys()))):
+            iface = ifaces.data[i]
+            wname = iface.data['netid']
+            selections[s] = iface
+            print("%s > %s : %s"%(s,wname,get_if_addr(iface)))
+        try:
+            s_ = int(input("Select interface > "))
+            if s_ == -1: sys.exit()
+            return selections[s_]
+        except KeyboardInterrupt:
+            return selectInterface()
+    except NameError:
+        return "eth0"
 lt = time.time()
 lt_ = 0.05
 def getLoader(color=colorama.Fore.YELLOW):
