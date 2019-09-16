@@ -159,16 +159,16 @@ class SSLSoldier:
     CT_Change_Cipher_Spec=0x14
     CT_Alert=0x15
     HandshakeTypes={
-        "hello_request":0x00,
-        "client_hello":0x01,
-        "server_hello":0x02,
-        "certificate":0x0b,
-        "server_key_exchange":0x0c,
-        "certificate_request":0x0d,
-        "server_hello_done":0x0e,
-        "certificate_verify":0x0f,
-        "client_key_exchange":0x10,
-        "finished":0x14
+        0x00:"hello_request",
+        0x01:"client_hello",
+        0x02:"server_hello",
+        0x0b:"certificate",
+        0x0c:"server_key_exchange",
+        0x0d:"certificate_request",
+        0x0e:"server_hello_done",
+        0x0f:"certificate_verify",
+        0x10:"client_key_exchange",
+        0x14:"finished"
     }
     HT_hello_request=0x00
     HT_client_hello=0x01
@@ -201,14 +201,22 @@ class SSLSoldier:
         
         sslpacket = sdata[0x5:0x5+header_0[2]]
         if(content_type == self.CT_Handshake):
-            pass
+            handshake_h0 = unpack(self.handshake_h0,sslpacket[0:6])
+            htype = handshake_h0[0]
+            hlength = unpack("I","\x00%s"%(handshake_h0[1]))
+            h_version = handshake_h0[2]
+            _["_htype"] = htype
+            _["hlength"] = hlength
+            _["_hversion"] = h_version
+            _["htype"] =self.HandshakeTypes[htype]
+            _["hversion"] =self.SSLVersions[h_version]
         return _
     def Look(self,packet):
         if packet.Protocol["name"] == "https" and packet.cwith("160.153.133.165"):
             #HexDump(packet.db[0:16])
             SSLPacket = self.AnalyzeSSLPacket(packet)
             if(SSLPacket):
-                print("%s:%s -> %s:%s | Protocol: %s Service: %s Length: %s CT:%s Version:%s CL:%s"%(
+                print("%s:%s -> %s:%s | Protocol: %s Service: %s Length: %s CT:%s Version:%s CL:%s %s"%(
                     packet.source,packet.source_port,
                     packet.destination,packet.destination_port,
                     getProtocol(packet.protocol),
@@ -217,6 +225,7 @@ class SSLSoldier:
                     SSLPacket["content-type"],
                     SSLPacket["version"],
                     SSLPacket["length"],
+                    "HT:%s HL:%s HV:%s"%(SSLPacket["htype"],SSLPacket["hlength"],SSLPacket["hversion"]) if SSLPacket["_content-type"] == self.CT_Handshake else ""
                     )
                 )
             else:
