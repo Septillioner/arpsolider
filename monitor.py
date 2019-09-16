@@ -4,6 +4,7 @@ from threading import Thread
 from binascii import hexlify
 from socket import inet_ntoa
 import time
+from SSLC import *
 def inet_ntom(mac):
     return ":".join(map(hexlify,mac))
 SERVICES = json.loads(open("ports.json","rb").read())
@@ -184,6 +185,7 @@ class SSLSoldier:
         self.target= target
         self.ConnectionPackets = []
     def AnalyzeSSLPacket(self,packet):
+        global CIPHER
         sdata = packet.db
         _ = {}
         try:
@@ -203,19 +205,34 @@ class SSLSoldier:
         if(content_type == self.CT_Handshake):
             handshake_h0 = unpack(self.handshake_h0,sslpacket[0:6])
             htype = handshake_h0[0]
-            hlength = unpack("I","\x00%s"%(handshake_h0[1]))
+            hlength = unpack(">I","\x00%s"%(handshake_h0[1]))[0]
             h_version = handshake_h0[2]
+            random = sslpacket[6:0x26]
+            session_length = ord(sslpacket[0x26])
+            session_id =sslpacket[0x27:0x27+session_length]
+            if(htype==self.HT_client_hello):
+                csb = 0x27+session_length
+                cipher_suit_length = unpack("!H",sslpacket[csb:csb+2])[0]/2
+                cs = csb+2
+                HexDump(sslpacket[cs:cs+cipher_suit_length*2])
+                ciphers = unpack("!%s"%("H"*cipher_suit_length),sslpacket[cs:cs+cipher_suit_length*2])
+                print(len(ciphers))
+                for cipher in ciphers:
+                    print(">%s"%(CIPHER[cipher]))
             _["_htype"] = htype
             _["hlength"] = hlength
             _["_hversion"] = h_version
             _["htype"] =self.HandshakeTypes[htype]
             _["hversion"] =self.SSLVersions[h_version]
+            _["session-length"] =session_length
+            _["_session-id"] =session_id
+            _["session-id"] = hexlify(session_id)
         return _
     def Look(self,packet):
         if packet.Protocol["name"] == "https" and packet.cwith("160.153.133.165"):
             #HexDump(packet.db[0:16])
             SSLPacket = self.AnalyzeSSLPacket(packet)
-            if(SSLPacket):
+            if(SSLPacket and SSLPacket["_content-type"] == self.CT_Handshake):
                 print("%s:%s -> %s:%s | Protocol: %s Service: %s Length: %s CT:%s Version:%s CL:%s %s"%(
                     packet.source,packet.source_port,
                     packet.destination,packet.destination_port,
@@ -225,7 +242,7 @@ class SSLSoldier:
                     SSLPacket["content-type"],
                     SSLPacket["version"],
                     SSLPacket["length"],
-                    "HT:%s HL:%s HV:%s"%(SSLPacket["htype"],SSLPacket["hlength"],SSLPacket["hversion"]) if SSLPacket["_content-type"] == self.CT_Handshake else ""
+                    "HT:%s HL:%s HV:%s SL:%s SID:%s"%(SSLPacket["htype"],SSLPacket["hlength"],SSLPacket["hversion"],SSLPacket["session-length"],SSLPacket["session-id"]) if SSLPacket["_content-type"] == self.CT_Handshake else ""
                     )
                 )
             else:
