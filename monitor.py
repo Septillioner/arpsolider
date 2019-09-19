@@ -155,6 +155,14 @@ class Packet:
         self.header = header
     def cwith(self,target):
         return self.source == target or self.destination == target
+class TLSExtensionParser:
+    def __init__(self,exdata):
+        self.data = exdata
+        self.extensions = {}
+    def ParseExtension(self):
+        pass
+    def GetExtensions(self):
+        return self.extensions
 class SSLSoldier:
     h0 = "!BHH"
     handshake_h0 = "!B3sH"
@@ -246,6 +254,10 @@ class SSLSoldier:
                 #    print("compression : 0x%X"%(compression))
                 cs = cs+1+complen
                 extension_length = unpack("!H",sslpacket[cs:cs+2])[0]
+                extensionparser = TLSExtensionParser(sslpacket[cs+2:cs+2+extension_length])
+                extensions = extensionparser.GetExtensions()
+                for extension in extensions:
+                    print("%s : %s"%(extension,extensions[extension]))
                 print("Extension length:%s"%(extension_length))
                 _["ciphers"] = ciphers
             try:
