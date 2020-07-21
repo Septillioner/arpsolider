@@ -17,7 +17,6 @@ if os.name=="nt":
     import ctypes
 IP = CMD = 0
 MAC = TARGET = 1
-
 try:
     import winreg
     class creg:
@@ -77,6 +76,7 @@ def searchAndGetInterface(iname):
     try:
         ifaces = NetworkInterfaceDict()
         for i in ifaces.data.keys():
+            print(i)
             iface = ifaces.data[i]
             wname = iface.data['netid']
             if(wname == iname):
@@ -85,6 +85,8 @@ def searchAndGetInterface(iname):
     except NameError:
         return "eth0"
 def selectInterface():
+    if(os.name=="posix"):
+        return posixInterfaceDirect()
     try:
         selections = {}
         print("-1 > exit")
@@ -202,15 +204,27 @@ class ArpHandler:
         if len(unans) > 0:
             return None
         return reply[0][1].hwsrc
+def posixInterfaceDirect():
+    interfaces = []
+    for root,dirs,files in os.walk("/sys/class/net"):
+        if("/sys/class/net" == root):
+            interfaces=dirs
+    interfaces.remove("lo")
+    return interfaces[0] 
+    #int = check_output("").rstrip().split(" ")
+    #int.remove("lo")
+    #return int[0]
 class ArpSpooferConsole:
     def __init__(self):
         self.cwd = get_username()
         self.Done = False
-        self.Interface  = searchAndGetInterface("eth0" if os.name == "posix" else "Ethernet")
+        print(posixInterfaceDirect())
+        self.Interface  = searchAndGetInterface(posixInterfaceDirect() if os.name == "posix" else "Ethernet")
         self.Timeout = 5
         try:
             self.arpHandler = ArpHandler(self.Interface)
             self.m_host = get_if_addr(self.Interface)
+            print(self.m_host)
             self.m_mac = self.arpHandler.getMAC(self.m_host)
         except:
             self.Interface = selectInterface()

@@ -5,6 +5,7 @@ from binascii import hexlify
 from socket import inet_ntoa
 import time
 from os import system,remove
+import os
 def inet_ntom(mac):
     return ":".join(map(hexlify,mac))
 SERVICES = json.loads(open("ports.json","rb").read())
